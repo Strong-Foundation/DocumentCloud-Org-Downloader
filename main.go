@@ -13,8 +13,8 @@ import (
 	"strings"       // For string manipulation
 )
 
-// ExtractFinalDocumentCloudURL converts documentcloud.org or embed.documentcloud.org links to final S3 links
-func ExtractFinalDocumentCloudURL(input string) string {
+// extractFinalDocumentCloudURL converts documentcloud.org or embed.documentcloud.org links to final S3 links
+func extractFinalDocumentCloudURL(input string) string {
 	parsedURL, err := url.Parse(input) // Parse the input into a URL struct
 	if err != nil {                    // If parsing fails
 		return "" // Return empty string
@@ -44,83 +44,88 @@ func ExtractFinalDocumentCloudURL(input string) string {
 	return finalURL // Return the constructed final URL
 }
 
-// downloadPDF downloads a PDF from the provided raw URL and saves it to the specified output directory.
-// It handles redirects, constructs a valid filename, and logs any errors without returning them.
-func downloadPDF(rawURL, outputDir string) {
-	// Parse the input URL to validate and work with it
-	parsedURL, err := url.Parse(rawURL)
+// downloadPDF downloads a PDF from a direct S3 URL and saves it to the specified output directory.
+// It skips downloading if the file already exists locally.
+func downloadPDF(finalURL, outputDir string) {
+	// Parse the URL to work with its path and file name
+	parsedURL, err := url.Parse(finalURL)
 	if err != nil {
-		log.Printf("Invalid URL %q: %v", rawURL, err) // Log the error if URL is invalid
-		return                                        // Stop processing this URL
-	}
-
-	// Perform an HTTP GET request; follows redirects automatically
-	resp, err := http.Get(rawURL)
-	if err != nil {
-		log.Printf("Failed to fetch %s: %v", rawURL, err) // Log the fetch error
-		return
-	}
-	defer resp.Body.Close() // Ensure the response body is closed after reading
-
-	// Check if the HTTP response status is 200 OK
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Bad status for %s: %s", rawURL, resp.Status) // Log non-OK status codes
+		log.Printf("Invalid URL %q: %v", finalURL, err) // Log and exit if the URL is malformed
 		return
 	}
 
-	// Get the final URL after any redirects (some sites redirect to CDN or file hosting services)
-	finalURL := resp.Request.URL.String()
-
-	// Log both original and final URLs for traceability
-	log.Printf("Original URL: %s", parsedURL)
-	log.Printf("Final URL:    %s", finalURL)
-
-	// Parse the final URL to extract the file path and name
-	finalParsed, err := url.Parse(finalURL)
-	if err != nil {
-		log.Printf("Cannot parse final URL %q: %v", finalURL, err) // Log error in parsing redirected URL
-		return
-	}
-
-	// Extract the file name from the final URL path
-	fileName := path.Base(finalParsed.Path)
+	// Extract the file name from the URL path (e.g., "myfile.pdf")
+	fileName := path.Base(parsedURL.Path)
 	if fileName == "" || fileName == "/" {
-		log.Printf("Could not determine file name from %q", finalURL) // Log if file name is invalid
+		log.Printf("Could not determine file name from %q", finalURL) // Log and exit if name is missing
 		return
 	}
 
-	// Append .pdf extension if the file doesn't have one
+	// Make sure the file has a .pdf extension
 	if !strings.HasSuffix(strings.ToLower(fileName), ".pdf") {
 		fileName += ".pdf"
 	}
 
-	// Create the output directory if it doesn't exist
+	// Ensure the output directory exists (create it if it doesn't)
 	err = os.MkdirAll(outputDir, 0755)
 	if err != nil {
-		log.Printf("Failed to create directory %s: %v", outputDir, err) // Log directory creation failure
+		log.Printf("Failed to create directory %s: %v", outputDir, err) // Log directory creation error
 		return
 	}
 
-	// Build the complete path to where the file will be saved
+	// Build the full path to where the file will be saved
 	filePath := filepath.Join(outputDir, fileName)
 
-	// Create a file at the target location
+	// ✅ If the file already exists, skip the download
+	if fileExists(filePath) {
+		log.Printf("File already exists, skipping: %s", filePath)
+		return
+	}
+
+	// Send the HTTP GET request to download the PDF file
+	resp, err := http.Get(finalURL)
+	if err != nil {
+		log.Printf("Failed to download %s: %v", finalURL, err) // Log fetch failure
+		return
+	}
+	defer resp.Body.Close() // Close the response body after function completes
+
+	// Check for successful HTTP response (status 200)
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Download failed for %s: %s", finalURL, resp.Status) // Log error status code
+		return
+	}
+
+	// Create the destination file
 	outFile, err := os.Create(filePath)
 	if err != nil {
-		log.Printf("Failed to create file %s: %v", filePath, err) // Log file creation failure
+		log.Printf("Failed to create file %s: %v", filePath, err) // Log file creation error
 		return
 	}
-	defer outFile.Close() // Ensure the file is closed after writing
+	defer outFile.Close() // Close file handle after writing
 
-	// Copy the contents of the response body to the output file
+	// Copy the contents from the response body to the local file
 	_, err = io.Copy(outFile, resp.Body)
 	if err != nil {
-		log.Printf("Failed to write to %s: %v", filePath, err) // Log file writing errors
+		log.Printf("Failed to save PDF to %s: %v", filePath, err) // Log writing error
 		return
 	}
 
-	// Log the successful download
+	// Log successful download
 	log.Printf("Downloaded to %s\n", filePath)
+}
+
+/*
+It checks if the file exists
+If the file exists, it returns true
+If the file does not exist, it returns false
+*/
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }
 
 func main() { // Main entry point
@@ -134,9 +139,7 @@ func main() { // Main entry point
 
 	// Loop through each input URL and convert it
 	for _, url := range urls {
-		finalURL := ExtractFinalDocumentCloudURL(url) // Call the function
-		fmt.Println("Input:", url)                    // Print the input URL
-		fmt.Println("Final S3 URL:", finalURL)        // Print the final S3 URL
+		finalURL := extractFinalDocumentCloudURL(url) // Call the function
 		downloadPDF(finalURL, pdfDir)                 // Call the download function
 	}
 }

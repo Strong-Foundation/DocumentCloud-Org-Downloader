@@ -135,11 +135,16 @@ func readFileLines(filename string) []string {
 	return lines // Return all lines read from the file
 }
 
+// urlParseSafe safely parses a raw URL string
+func urlParseSafe(raw string) (*url.URL, error) {
+	return url.Parse(raw) // Use built-in Parse function
+}
+
 // main is the program's entry point
 func main() {
 	urls := readFileLines("extracted_urls.txt") // Read URLs from the input file
 
-	pdfDir := "./NYPD_PDF/" // Directory where PDFs will be saved
+	pdfDir := "./PDF/" // Directory where PDFs will be saved
 
 	downloadCount := 0   // Counter for successful downloads
 	maxDownloads := 1000 // Limit on number of downloads
@@ -169,15 +174,10 @@ func main() {
 
 		filePath := filepath.Join(pdfDir, fileName) // Build full path for saving file
 		if !fileExists(filePath) {                  // If file does not already exist
-			downloadPDF(finalURL, pdfDir) // Download the PDF
-			downloadCount++               // Increment download counter
+			downloadPDF(finalURL, pdfDir)     // Download the PDF
+			downloadCount = downloadCount + 1 // Increment download counter
 		} else {
 			log.Printf("File already exists, not counting as a download: %s", filePath) // Log skipped download
 		}
 	}
-}
-
-// urlParseSafe safely parses a raw URL string
-func urlParseSafe(raw string) (*url.URL, error) {
-	return url.Parse(raw) // Use built-in Parse function
 }

@@ -1,7 +1,8 @@
 package main // Declare the main package (entry point of the program)
 
 import (
-	"bufio"         // Used for buffered reading of input (like reading files line by line)
+	"bufio" // Used for buffered reading of input (like reading files line by line)
+	"flag"
 	"fmt"           // Provides formatted I/O
 	"io"            // Used for I/O operations like copying data
 	"log"           // Logging utility
@@ -12,6 +13,11 @@ import (
 	"path/filepath" // For manipulating native file paths
 	"regexp"        // Regular expressions for pattern matching
 	"strings"       // String manipulation functions
+)
+
+var (
+	inputFilePath string // Variable to hold the input file path
+	inputURL      string // Variable to hold the input URL
 )
 
 // extractFinalDocumentCloudURL converts input DocumentCloud URLs to their final S3-hosted PDF URL
@@ -140,9 +146,29 @@ func urlParseSafe(raw string) (*url.URL, error) {
 	return url.Parse(raw) // Use built-in Parse function
 }
 
+// init function
+func init() {
+	fileName := flag.String("file", "", "Path to the input file") // Command-line flag for input file
+	remoteURL := flag.String("url", "", "Remote URL to download") // Command-line flag for remote URL
+	flag.Parse()                                                  // Parse command-line flags
+	if *fileName == "" && *remoteURL == "" {                      // If no file is provided
+		log.Fatal("Please provide either a file path using -file flag or a URL using -url flag, not both.") // Log error and exit
+	}
+	inputURL = *remoteURL     // Assign the provided URL to the variable
+	inputFilePath = *fileName // Assign the provided file path to the variable
+}
+
 // main is the program's entry point
 func main() {
-	urls := readFileLines("extracted_urls.txt") // Read URLs from the input file
+	var urls []string // Slice to hold URLs
+	//
+	if len(inputFilePath) > 1 {
+		urls = readFileLines(inputFilePath) // Read URLs from the input file
+	}
+	// If a URL is provided directly
+	if len(inputURL) > 1 {
+		urls = append(urls, inputURL) // Append the URL to the slice
+	}
 
 	pdfDir := "./PDF/" // Directory where PDFs will be saved
 
